@@ -1,43 +1,33 @@
-// src/backend/index.js
-
 const WebSocket = require('ws');
 const axios = require('axios');
-require('dotenv').config();
 
 const API_TOKEN = process.env.DERIV_API_TOKEN;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-let ws = null;
-let isAuthorized = false;
-let reconnectInterval = 10000;
-let lastTradeTime = 0;
-const tradeCooldown = 5000; 
-
-let balance = 0;
+let isRunning = false;
+let profit = 0;
 let winCount = 0;
 let lossCount = 0;
-let profit = 0;
-let goal = 2; // Example: Target $2 profit for the day
-let sessionPnL = 0;
-let activeStrategy = 'Momentum'; 
+let balance = 0;
+
+let dailyTarget = 2;       // Example: +$2 daily target
+let stopLossLimit = -3;     // Example: -$3 daily limit
 
 const sendTelegramMessage = async (message) => {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   try {
-    await axios.post(url, {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-    });
-  } catch (error) {
-    console.error('Telegram Error:', error.message);
+    await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message });
+  } catch (err) {
+    console.error('Telegram error:', err.message);
   }
 };
 
 const connectWebSocket = () => {
-  ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+  const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
   ws.on('open', () => {
+    sendTelegramMessage('✅ Connected to Deriv');
     ws.send(JSON.stringify({ authorize: API_TOKEN }));
   });
 
@@ -45,113 +35,113 @@ const connectWebSocket = () => {
     const response = JSON.parse(data);
 
     if (response.msg_type === 'authorize') {
-      isAuthorized = true;
-      await sendTelegramMessage('✅ Authorized on Deriv');
-      subscribeToTicks();
-      getBalance();
+      sendTelegramMessage('✅ Authorized on Deriv');
+      getBalance(ws);
+      if (isRunning) executeTrade(ws);
     }
 
     if (response.msg_type === 'balance') {
       balance = response.balance.balance;
-      await sendTelegramMessage(`💰 Balance: $${balance.toFixed(2)}`);
+      sendTelegramMessage(`💰 Balance: $${balance.toFixed(2)}`);
     }
 
     if (response.msg_type === 'buy') {
-      await sendTelegramMessage(`✅ Buy Confirmed: ${response.buy.contract_id}`);
+      sendTelegramMessage(`🚀 Trade Sent: Momentum - $0.35`);
     }
 
-    if (response.msg_type === 'profit_table') {
-      const profitVal = response.profit_table.profit;
-      sessionPnL += profitVal;
-      profit += profitVal;
-      if (profitVal > 0) {
-        winCount++;
-        await sendTelegramMessage(`✅ Win: +$${profitVal.toFixed(2)}`);
-      } else {
-        lossCount++;
-        await sendTelegramMessage(`❌ Loss: $${profitVal.toFixed(2)}`);
+    if (response.msg_type === 'proposal_open_contract') {
+      const isSold = response.proposal_open_contract.is_sold;
+      if (isSold) {
+        const profitVal = response.proposal_open_contract.profit || 0;
+        profit += profitVal;
+        if (profitVal > 0) {
+          winCount++;
+          sendTelegramMessage(`✅ Win: $${profitVal.toFixed(2)} | PnL: $${profit.toFixed(2)}`);
+        } else {
+          lossCount++;
+          sendTelegramMessage(`❌ Loss: $${profitVal.toFixed(2)} | PnL: $${profit.toFixed(2)}`);
+        }
+
+        // Check Goal System:
+        if (profit >= dailyTarget) {
+          sendTelegramMessage(`🎯 Daily Target Achieved: $${profit.toFixed(2)} ✅ Stopping.`);
+          isRunning = false;
+          ws.close();
+        } else if (profit <= stopLossLimit) {
+          sendTelegramMessage(`🛑 Stop Loss Hit: $${profit.toFixed(2)} ❌ Stopping.`);
+          isRunning = false;
+          ws.close();
+        } else {
+          getBalance(ws);
+          if (isRunning) executeTrade(ws);
+        }
       }
-      checkGoal();
-    }
-
-    if (response.msg_type === 'error') {
-      await sendTelegramMessage(`❌ Error: ${response.error.message}`);
     }
   });
 
-  ws.on('close', async () => {
-    isAuthorized = false;
-    await sendTelegramMessage('❌ Disconnected from Deriv');
-    setTimeout(connectWebSocket, reconnectInterval);
-  });
-
-  ws.on('error', async (error) => {
-    await sendTelegramMessage(`❌ WebSocket error: ${error.message}`);
-    ws.close();
-  });
+  ws.on('error', () => sendTelegramMessage('❌ Connection Error'));
+  ws.on('close', () => sendTelegramMessage('❌ Disconnected from Deriv'));
 };
 
-const subscribeToTicks = () => {
-  if (ws && isAuthorized) {
-    ws.send(JSON.stringify({ ticks: 'R_100' }));
-  }
+const getBalance = (ws) => {
+  ws.send(JSON.stringify({ balance: 1, subscribe: 0 }));
 };
 
-const placeTrade = () => {
-  if (!ws || !isAuthorized) return;
-
-  const now = Date.now();
-  if (now - lastTradeTime < tradeCooldown) return;
-
-  const tradeAmount = 0.35;
-  const buyRequest = {
+const executeTrade = (ws) => {
+  const trade = {
     buy: 1,
-    price: tradeAmount,
+    price: 0.35,
     parameters: {
-      amount: tradeAmount,
+      amount: 0.35,
       basis: 'stake',
       contract_type: 'CALL',
       currency: 'USD',
       duration: 1,
       duration_unit: 't',
-      symbol: 'R_100',
-    },
+      symbol: 'R_100'
+    }
   };
-
-  ws.send(JSON.stringify(buyRequest));
-  lastTradeTime = now;
-  sendTelegramMessage(`🚀 Trade Sent: ${activeStrategy} - $${tradeAmount}`);
+  ws.send(JSON.stringify(trade));
 };
 
-const getBalance = () => {
-  if (ws && isAuthorized) {
-    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+const startBot = () => {
+  if (!isRunning) {
+    isRunning = true;
+    sendTelegramMessage('🤖 BAYNEX Bot Started');
+    connectWebSocket();
   }
 };
 
-const getProfitTable = () => {
-  if (ws && isAuthorized) {
-    ws.send(JSON.stringify({
-      profit_table: 1,
-      description: 1,
-      limit: 1
-    }));
-  }
+const stopBot = () => {
+  isRunning = false;
+  sendTelegramMessage('⛔ Bot Stopped');
 };
 
-const checkGoal = async () => {
-  if (sessionPnL >= goal) {
-    await sendTelegramMessage(`🎯 Goal Achieved! Profit: $${sessionPnL.toFixed(2)} ✅`);
-  }
+// Telegram Bot Commands
+const telegramPolling = () => {
+  let lastCommand = '';
+
+  setInterval(async () => {
+    try {
+      const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
+      const response = await axios.get(url);
+      const updates = response.data.result;
+
+      if (updates.length > 0) {
+        const lastMessage = updates[updates.length - 1].message.text;
+        if (lastMessage !== lastCommand) {
+          lastCommand = lastMessage;
+
+          if (lastMessage === '/start') startBot();
+          if (lastMessage === '/stop') stopBot();
+          if (lastMessage === '/balance') sendTelegramMessage(`💰 Balance: $${balance.toFixed(2)}`);
+        }
+      }
+    } catch (err) {
+      console.error('Telegram polling error:', err.message);
+    }
+  }, 3000);
 };
 
-connectWebSocket();
-
-setInterval(() => {
-  placeTrade();
-  getProfitTable();
-}, 30000);
-
-setInterval(() => {
-  getBalance();
-}, 60000);
+sendTelegramMessage('✅ BAYNEX System Online');
+telegramPolling();
