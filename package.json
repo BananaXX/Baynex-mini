@@ -1,7 +1,7 @@
 {
   "name": "baynex-backend",
-  "version": "1.0.2",
-  "description": "BAYNEX Trading Bot Backend",
+  "version": "1.0.3",
+  "description": "BAYNEX Backend Complete Phase 2",
   "main": "src/backend/index.js",
   "scripts": {
     "start": "node src/backend/index.js"
