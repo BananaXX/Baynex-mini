@@ -1,6 +1,7 @@
+// File: package.json
 {
   "name": "baynex-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "src/backend/index.js",
   "scripts": {
     "start": "node src/backend/index.js"
