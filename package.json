@@ -1,19 +1,13 @@
 {
   "name": "baynex-backend",
   "version": "1.0.0",
-  "main": "dist/index.js",
+  "main": "src/backend/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node src/backend/index.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
     "dotenv": "^16.0.3",
     "ws": "^8.13.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.2.2",
-    "@types/node": "^20.4.2",
-    "@types/ws": "^8.5.8"
   }
 }
