@@ -1,8 +1,6 @@
 const WebSocket = require('ws');
 const axios = require('axios');
 require('dotenv').config();
-const { decideTrade } = require('./strategy');
-const { recordWin, recordLoss, getStats } = require('./stats');
 
 const DERIV_APP_ID = process.env.DERIV_APP_ID;
 const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN;
@@ -10,8 +8,9 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 let ws = null;
-let lastTicks = [];
-let isAuthorized = false;
+let isTrading = false;
+let lastTradeTime = 0;
+const TRADE_COOLDOWN_MS = 60000; // 1 minute cooldown
 
 const sendTelegramMessage = async (message) => {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -26,77 +25,60 @@ const connectToDeriv = () => {
 
   ws.on('open', () => {
     console.log('✅ Connected');
-    sendTelegramMessage('✅ BAYNEX Connected');
-    ws.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
+    sendTelegramMessage('✅ BAYNEX Bot Connected to Deriv');
+    authorize();
   });
 
   ws.on('message', (data) => {
     const res = JSON.parse(data.toString());
     handleResponse(res);
   });
-
-  ws.on('close', () => {
-    console.log('❌ Disconnected');
-    sendTelegramMessage('❌ Disconnected. Reconnecting...');
-    setTimeout(connectToDeriv, 3000);
-  });
-
-  ws.on('error', (err) => console.error('WebSocket Error:', err.message));
 };
 
-const handleResponse = (response) => {
-  if (response.msg_type === 'authorize') {
-    isAuthorized = true;
-    sendTelegramMessage('✅ Authorized');
-    subscribeTicks();
-  }
+const authorize = () => {
+  const authRequest = { authorize: DERIV_API_TOKEN };
+  ws.send(JSON.stringify(authRequest));
+};
 
-  if (response.msg_type === 'tick') {
-    const price = parseFloat(response.tick.quote);
-    lastTicks.push(price);
-    if (lastTicks.length > 10) lastTicks.shift();
-
-    const decision = decideTrade(lastTicks);
-    if (decision) placeTrade(decision);
-  }
-
-  if (response.msg_type === 'buy') {
-    sendTelegramMessage(`✅ Trade Placed: ${response.buy.transaction_id}`);
-  }
-
-  if (response.msg_type === 'proposal_open_contract') {
-    if (response.proposal_open_contract.is_sold) {
-      const profit = parseFloat(response.proposal_open_contract.profit);
-      if (profit > 0) {
-        recordWin(profit);
-        sendTelegramMessage(`✅ Win: +$${profit.toFixed(2)} | Stats: ${JSON.stringify(getStats())}`);
-      } else {
-        recordLoss(Math.abs(profit));
-        sendTelegramMessage(`❌ Loss: -$${Math.abs(profit).toFixed(2)} | Stats: ${JSON.stringify(getStats())}`);
-      }
-    }
+const handleResponse = (res) => {
+  if (res.msg_type === 'authorize') {
+    sendTelegramMessage('✅ Authorized on Deriv');
+    startTrading();
   }
 };
 
-const subscribeTicks = () => {
-  ws.send(JSON.stringify({ ticks: 'R_100' }));
-};
+const startTrading = () => {
+  const now = Date.now();
+  if (isTrading || now - lastTradeTime < TRADE_COOLDOWN_MS) {
+    console.log('⏳ Waiting for cooldown or trade in progress');
+    return;
+  }
 
-const placeTrade = (contractType) => {
-  const trade = {
+  isTrading = true;
+  lastTradeTime = now;
+
+  const tradeDetails = {
     buy: 1,
     price: 0.35,
     parameters: {
       amount: 0.35,
       basis: 'stake',
-      contract_type: contractType,
+      contract_type: 'CALL',
       currency: 'USD',
       duration: 1,
       duration_unit: 'm',
-      symbol: 'R_100'
-    }
+      symbol: 'R_100',
+    },
   };
-  ws.send(JSON.stringify(trade));
+
+  ws.send(JSON.stringify(tradeDetails));
+
+  sendTelegramMessage('🚀 Trade Sent: CALL R_100');
+
+  setTimeout(() => {
+    isTrading = false;
+    console.log('✅ Ready for next trade');
+  }, TRADE_COOLDOWN_MS);
 };
 
 connectToDeriv();
