@@ -1,84 +1,42 @@
-const WebSocket = require('ws');
-const axios = require('axios');
-require('dotenv').config();
+// File: src/backend/index.js const WebSocket = require('ws'); const axios = require('axios'); require('dotenv').config();
 
-const DERIV_APP_ID = process.env.DERIV_APP_ID;
-const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const DERIV_APP_ID = process.env.DERIV_APP_ID; const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-let ws = null;
-let isTrading = false;
-let lastTradeTime = 0;
-const TRADE_COOLDOWN_MS = 60000; // 1 minute cooldown
+let ws = null; let isTrading = false; let tradeCount = 0; let dailyProfit = 0;
 
-const sendTelegramMessage = async (message) => {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-  await axios.post(url, {
-    chat_id: TELEGRAM_CHAT_ID,
-    text: message,
-  });
-};
+const MAX_TRADES_PER_SESSION = 3; const COOLDOWN_MS = 60000; // 1 minute cooldown const DAILY_PROFIT_TARGET = 3; // $3 const DAILY_LOSS_LIMIT = -3; // -$3
 
-const connectToDeriv = () => {
-  ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+const sendTelegramMessage = async (message) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, }); };
 
-  ws.on('open', () => {
-    console.log('✅ Connected');
-    sendTelegramMessage('✅ BAYNEX Bot Connected to Deriv');
-    authorize();
-  });
+const connectToDeriv = () => { ws = new WebSocket(wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID});
 
-  ws.on('message', (data) => {
-    const res = JSON.parse(data.toString());
-    handleResponse(res);
-  });
-};
+ws.on('open', () => { console.log('✅ Connected to Deriv'); sendTelegramMessage('✅ BAYNEX Bot Connected to Deriv'); authorize(); });
 
-const authorize = () => {
-  const authRequest = { authorize: DERIV_API_TOKEN };
-  ws.send(JSON.stringify(authRequest));
-};
+ws.on('message', (data) => { const res = JSON.parse(data.toString()); handleResponse(res); });
 
-const handleResponse = (res) => {
-  if (res.msg_type === 'authorize') {
-    sendTelegramMessage('✅ Authorized on Deriv');
-    startTrading();
-  }
-};
+ws.on('close', () => { console.log('❌ Disconnected. Reconnecting...'); sendTelegramMessage('❌ BAYNEX Bot Disconnected. Reconnecting...'); setTimeout(connectToDeriv, 5000); }); };
 
-const startTrading = () => {
-  const now = Date.now();
-  if (isTrading || now - lastTradeTime < TRADE_COOLDOWN_MS) {
-    console.log('⏳ Waiting for cooldown or trade in progress');
-    return;
-  }
+const authorize = () => { ws.send(JSON.stringify({ authorize: DERIV_API_TOKEN })); };
 
-  isTrading = true;
-  lastTradeTime = now;
+const placeTrade = () => { if (tradeCount >= MAX_TRADES_PER_SESSION || isTrading) return; if (dailyProfit >= DAILY_PROFIT_TARGET || dailyProfit <= DAILY_LOSS_LIMIT) { sendTelegramMessage('🚫 Trading paused: Goal or Stop-Loss reached.'); return; }
 
-  const tradeDetails = {
-    buy: 1,
-    price: 0.35,
-    parameters: {
-      amount: 0.35,
-      basis: 'stake',
-      contract_type: 'CALL',
-      currency: 'USD',
-      duration: 1,
-      duration_unit: 'm',
-      symbol: 'R_100',
-    },
-  };
+isTrading = true; const tradeRequest = { buy: 1, price: 1, parameters: { amount: 1, basis: 'stake', contract_type: 'CALL', currency: 'USD', duration: 1, duration_unit: 'm', symbol: 'R_100' } };
 
-  ws.send(JSON.stringify(tradeDetails));
+ws.send(JSON.stringify(tradeRequest)); sendTelegramMessage('🚀 Trade Sent: CALL R_100'); };
 
-  sendTelegramMessage('🚀 Trade Sent: CALL R_100');
+const handleResponse = (res) => { if (res.msg_type === 'authorize') { sendTelegramMessage('✅ Authorized on Deriv'); placeTrade(); }
 
-  setTimeout(() => {
-    isTrading = false;
-    console.log('✅ Ready for next trade');
-  }, TRADE_COOLDOWN_MS);
-};
+if (res.msg_type === 'buy') { tradeCount++; const transactionId = res.buy.transaction_id; sendTelegramMessage(✅ Trade Placed: ${transactionId});
+
+setTimeout(() => {
+  isTrading = false;
+  sendTelegramMessage('✅ Ready for next trade');
+  placeTrade();
+}, COOLDOWN_MS);
+
+}
+
+if (res.msg_type === 'profit_table') { const profit = res.profit_table.profit; dailyProfit += profit; } };
 
 connectToDeriv();
+
