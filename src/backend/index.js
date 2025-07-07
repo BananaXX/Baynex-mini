@@ -1,40 +1,68 @@
-// 📂 File: src/backend/index.js
+const WebSocket = require('ws');
+const axios = require('axios');
+require('dotenv').config();
 
-const WebSocket = require('ws'); const axios = require('axios'); require('dotenv').config();
+const API_TOKEN = process.env.DERIV_API_TOKEN;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// ✅ Environment Variables const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-// ✅ Deriv WebSocket Setup const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+const sendTelegramMessage = async (message) => {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  try {
+    await axios.post(url, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: message,
+    });
+  } catch (error) {
+    console.error('Telegram Error:', error.message);
+  }
+};
 
-let isConnected = false; let isAuthorized = false; let isTradeActive = false;
+ws.on('open', () => {
+  console.log('✅ Connected');
+  ws.send(JSON.stringify({ authorize: API_TOKEN }));
+});
 
-// ✅ Telegram Messaging const sendTelegramMessage = async (message) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; try { await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, }); } catch (error) { console.error('Telegram error:', error.message); } };
+ws.on('message', async (data) => {
+  const response = JSON.parse(data);
 
-// ✅ Place Trade const placeTrade = () => { if (isTradeActive) return; // Prevent multiple trades
+  if (response.msg_type === 'authorize') {
+    console.log('✅ Authorized on Deriv');
+    sendTelegramMessage('✅ Authorized on Deriv');
+    ws.send(JSON.stringify({
+      buy: 1,
+      price: 0.35,
+      parameters: {
+        amount: 0.35,
+        basis: 'stake',
+        contract_type: 'CALL',
+        currency: 'USD',
+        duration: 1,
+        duration_unit: 'm',
+        symbol: 'R_100',
+      }
+    }));
+  }
 
-isTradeActive = true;
+  if (response.msg_type === 'buy') {
+    const contractId = response.buy.contract_id;
+    console.log(`✅ Buy Confirmed: ${contractId}`);
+    sendTelegramMessage(`✅ Buy Confirmed: ${contractId}`);
+  }
 
-const tradeRequest = { buy: 1, price: 1, parameters: { amount: 1, basis: 'stake', contract_type: 'CALL', currency: 'USD', duration: 1, duration_unit: 't', symbol: 'R_100', }, };
+  if (response.msg_type === 'portfolio') {
+    console.log('📊 Portfolio update:', response);
+  }
+});
 
-ws.send(JSON.stringify(tradeRequest)); sendTelegramMessage('✅ Trade Placed');
+ws.on('error', (err) => {
+  console.error('❌ WebSocket error:', err.message);
+  sendTelegramMessage('❌ WebSocket error: ' + err.message);
+});
 
-setTimeout(() => { isTradeActive = false; // Allow next trade after cooldown sendTelegramMessage('✅ Ready for next trade'); }, 60000); // 1-minute cooldown };
-
-// ✅ WebSocket Events ws.on('open', () => { isConnected = true; console.log('✅ Connected'); sendTelegramMessage('✅ Bot connected to Deriv');
-
-ws.send( JSON.stringify({ authorize: DERIV_API_TOKEN }) ); });
-
-ws.on('message', (data) => { const response = JSON.parse(data);
-
-if (response.msg_type === 'authorize') { isAuthorized = true; sendTelegramMessage('✅ Authorized'); placeTrade(); }
-
-if (response.msg_type === 'buy') { sendTelegramMessage(✅ Buy Confirmed: ${response.buy.contract_id}); }
-
-if (response.msg_type === 'error') { sendTelegramMessage(❌ Error: ${response.error.message}); } });
-
-ws.on('close', () => { isConnected = false; isAuthorized = false; sendTelegramMessage('❌ Disconnected. Attempting reconnect...');
-
-setTimeout(() => { process.exit(1); // Auto-restart by Render }, 5000); });
-
-// ✅ Keep process alive setInterval(() => {}, 10000);
-
+ws.on('close', () => {
+  console.log('❌ Disconnected');
+  sendTelegramMessage('❌ Disconnected from Deriv');
+});
