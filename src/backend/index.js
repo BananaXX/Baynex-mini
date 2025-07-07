@@ -1,34 +1,54 @@
-// File: /src/backend/index.js
+// ✅ BAYNEX.A.X BACKEND (Fixed Version) // File: /src/backend/index.js
 
 const WebSocket = require('ws'); const axios = require('axios'); require('dotenv').config();
 
-const DERIV_APP_ID = process.env.DERIV_APP_ID; const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const API_TOKEN = process.env.DERIV_API_TOKEN; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-let ws = null; let isTrading = false;
+const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-const sendTelegramMessage = async (message) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, }); };
+let isTrading = false; let tradeCooldown = false; let winCount = 0; let lossCount = 0; let lastTradeProfit = 0;
 
-const connectToDeriv = () => { ws = new WebSocket(wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID});
+const sendTelegramMessage = async (message) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; try { await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, }); } catch (error) { console.error('Telegram Error:', error.message); } };
 
-ws.on('open', () => { console.log('✅ Connected to Deriv'); sendTelegramMessage('✅ BAYNEX Bot Connected to Deriv'); authorize(); });
+const authorize = () => { ws.send(JSON.stringify({ authorize: API_TOKEN })); };
 
-ws.on('message', (data) => { const res = JSON.parse(data.toString()); handleResponse(res); });
+const placeTrade = () => { if (isTrading || tradeCooldown) return;
 
-ws.on('error', (err) => { console.error('WebSocket Error:', err); sendTelegramMessage('❌ WebSocket Error'); });
-
-ws.on('close', () => { console.log('🔌 WebSocket closed. Reconnecting...'); sendTelegramMessage('🔌 WebSocket disconnected. Reconnecting...'); setTimeout(connectToDeriv, 3000); }); };
-
-const authorize = () => { ws.send(JSON.stringify({ authorize: DERIV_API_TOKEN })); };
-
-const handleResponse = (res) => { if (res.msg_type === 'authorize') { console.log('✅ Authorized on Deriv'); sendTelegramMessage('✅ Authorized on Deriv'); placeTrade(); } else if (res.msg_type === 'buy') { console.log(✅ Trade Placed: ${res.buy.purchase_id}); sendTelegramMessage(✅ Trade Placed: ${res.buy.purchase_id}); setTimeout(() => { placeTrade(); }, 1000); } };
-
-const placeTrade = () => { if (isTrading) return; isTrading = true;
+isTrading = true; tradeCooldown = true;
 
 const tradeRequest = { buy: 1, price: 1, parameters: { amount: 1, basis: 'stake', contract_type: 'CALL', currency: 'USD', duration: 1, duration_unit: 't', symbol: 'R_100' } };
 
-ws.send(JSON.stringify(tradeRequest));
+ws.send(JSON.stringify(tradeRequest)); sendTelegramMessage('✅ Trade Placed');
 
-setTimeout(() => { isTrading = false; }, 3000); };
+setTimeout(() => { tradeCooldown = false; }, 60000); // 1 minute cooldown };
 
-connectToDeriv();
+ws.onopen = () => { console.log('✅ Connected'); sendTelegramMessage('✅ BAYNEX Connected'); authorize(); };
+
+ws.onmessage = (msg) => { const data = JSON.parse(msg.data);
+
+if (data.msg_type === 'authorize') { sendTelegramMessage('✅ Authorized on Deriv'); placeTrade(); }
+
+if (data.msg_type === 'buy') { const contractId = data.buy.purchase_id; sendTelegramMessage(📊 Trade ID: ${contractId}); }
+
+if (data.msg_type === 'proposal_open_contract') { const isSold = data.proposal_open_contract.is_sold; const profit = data.proposal_open_contract.profit;
+
+if (isSold) {
+  lastTradeProfit = profit;
+  if (profit > 0) {
+    winCount++;
+    sendTelegramMessage(`✅ Win! Profit: $${profit}`);
+  } else {
+    lossCount++;
+    sendTelegramMessage(`❌ Loss. Amount: $${profit}`);
+  }
+
+  isTrading = false;
+  sendTelegramMessage(`Wins: ${winCount} | Losses: ${lossCount}`);
+}
+
+} };
+
+ws.onerror = (err) => { console.error('WebSocket error:', err.message); sendTelegramMessage('⚠️ WebSocket error'); };
+
+ws.onclose = () => { console.log('❌ Disconnected'); sendTelegramMessage('❌ Disconnected. Reconnecting...'); setTimeout(() => { authorize(); }, 5000); };
 
