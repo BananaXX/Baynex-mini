@@ -30,8 +30,8 @@ const connectToDeriv = () => {
   });
 
   ws.on('message', (data: any) => {
-    const response = JSON.parse(data);
-    handleResponse(response);
+    const res = JSON.parse(data.toString());
+    handleResponse(res);
   });
 
   ws.on('close', () => {
@@ -39,15 +39,13 @@ const connectToDeriv = () => {
     setTimeout(connectToDeriv, 3000);
   });
 
-  ws.on('error', (err) => {
+  ws.on('error', (err: any) => {
     console.error('❌ WebSocket Error:', err.message);
   });
 };
 
 const authorize = () => {
-  ws?.send(JSON.stringify({
-    authorize: DERIV_API_TOKEN
-  }));
+  ws?.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
 };
 
 const handleResponse = (response: any) => {
@@ -67,7 +65,7 @@ const startTrade = () => {
   if (!ws) return;
   isTrading = true;
 
-  const tradeRequest = {
+  const trade = {
     buy: 1,
     price: 0.35,
     parameters: {
@@ -81,8 +79,8 @@ const startTrade = () => {
     }
   };
 
-  ws.send(JSON.stringify(tradeRequest));
-  sendTelegramMessage('🚀 Trade Sent: CALL on R_100');
+  ws.send(JSON.stringify(trade));
+  sendTelegramMessage('🚀 Trade Sent: CALL R_100');
 };
 
 connectToDeriv();
