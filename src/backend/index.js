@@ -1,54 +1,48 @@
-/* BAYNEX.A.X - Complete Backend Trading System (Phase 2.5) Includes:
-
-Deriv Connection & Balance Fetch
-
-Telegram Alerts
-
-Basic Trade Execution (Momentum Placeholder)
-
-Smart Error Handling */
-
-
 // src/backend/index.js
 
-const WebSocket = require('ws'); const axios = require('axios'); require('dotenv').config();
+require('dotenv').config(); const WebSocket = require('ws'); const axios = require('axios');
 
-const API_TOKEN = process.env.DERIV_API_TOKEN; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const API_TOKEN = process.env.DERIV_API_TOKEN; const APP_ID = process.env.DERIV_APP_ID; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-const ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+const ws = new WebSocket(wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID});
 
-let isAuthorized = false;
+let isTrading = false; let lastBalance = 0; let wins = 0; let losses = 0; let profitTarget = 1; // Example goal let currentProfit = 0;
 
 const sendTelegramMessage = async (message) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; try { await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message }); } catch (error) { console.error('Telegram send error:', error.message); } };
 
 const authorize = () => { ws.send(JSON.stringify({ authorize: API_TOKEN })); };
 
-const getBalance = () => { ws.send(JSON.stringify({ balance: 1 })); };
+const getBalance = () => { ws.send(JSON.stringify({ balance: 1, subscribe: 1 })); };
 
-const placeTrade = () => { const proposal = { buy: 1, parameters: { amount: 0.35, basis: 'stake', contract_type: 'CALL', currency: 'USD', duration: 1, duration_unit: 'm', symbol: 'R_100' } }; ws.send(JSON.stringify(proposal)); };
+const placeTrade = () => { const tradeRequest = { buy: 1, price: 0.35, parameters: { amount: 0.35, basis: 'stake', contract_type: 'CALL', currency: 'USD', duration: 1, duration_unit: 'm', symbol: 'R_100' } }; ws.send(JSON.stringify(tradeRequest)); };
 
-ws.onopen = () => { sendTelegramMessage('✅ BAYNEX System Online'); authorize(); };
+ws.onopen = () => { console.log('✅ Connected'); sendTelegramMessage('✅ BAYNEX connected and ready.'); authorize(); };
 
-ws.onmessage = async (msg) => { const data = JSON.parse(msg.data);
+ws.onmessage = (msg) => { const data = JSON.parse(msg.data);
 
-if (data.msg_type === 'authorize') { isAuthorized = true; sendTelegramMessage('✅ Authorized on Deriv'); getBalance(); }
+if (data.msg_type === 'authorize') { sendTelegramMessage('✅ Authorized on Deriv'); getBalance(); }
 
-if (data.msg_type === 'balance') { const balance = (data.balance?.balance || 0) / 100; sendTelegramMessage(💰 Balance: $${balance.toFixed(2)});
+if (data.msg_type === 'balance') { const newBalance = data.balance.balance; if (lastBalance !== 0) { const change = newBalance - lastBalance; currentProfit += change; if (change > 0) { wins++; sendTelegramMessage(✅ Win! Profit: $${change.toFixed(2)} | Total: $${currentProfit.toFixed(2)}); } else if (change < 0) { losses++; sendTelegramMessage(❌ Loss: $${change.toFixed(2)} | Total: $${currentProfit.toFixed(2)}); }
 
-// Example: Auto trigger Momentum strategy
-placeTrade();
+if (currentProfit >= profitTarget) {
+    sendTelegramMessage(`🎯 Goal Achieved! Profit: $${currentProfit.toFixed(2)}`);
+    ws.close();
+    return;
+  }
+}
+
+lastBalance = newBalance;
+
+if (!isTrading) {
+  isTrading = true;
+  placeTrade();
+}
 
 }
 
-if (data.msg_type === 'buy') { sendTelegramMessage(🚀 Trade Sent: Momentum - $0.35\n✅ Buy Confirmed: ${data.buy.contract_id}); }
+if (data.msg_type === 'buy') { sendTelegramMessage(✅ Buy Confirmed: ${data.buy.contract_id}); } };
 
-if (data.error) { sendTelegramMessage(❌ Error: ${data.error.message}); } };
+ws.onclose = () => { console.log('❌ Disconnected'); sendTelegramMessage('❌ Disconnected. Restarting...'); };
 
-ws.onclose = () => { sendTelegramMessage('❌ Disconnected from Deriv'); isAuthorized = false; };
-
-// --- package.json --- { "name": "baynex-backend", "version": "1.0.3", "main": "src/backend/index.js", "scripts": { "start": "node src/backend/index.js" }, "dependencies": { "axios": "^1.6.7", "dotenv": "^16.3.1", "ws": "^8.16.0" } }
-
-// --- tsconfig.json --- { "compilerOptions": { "target": "ES6", "module": "commonjs", "strict": true, "esModuleInterop": true, "outDir": "dist" }, "include": ["src/**/*"] }
-
-/* ✅ NEXT: Phase 3 - Win/Loss tracking, Goal System, Strategy Switcher Ready. Say "Go" */
+ws.onerror = (err) => { console.error('WebSocket error:', err.message); sendTelegramMessage(⚠️ Error: ${err.message}); };
 
