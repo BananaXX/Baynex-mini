@@ -1,18 +1,16 @@
-import WebSocket from 'ws';
-import axios from 'axios';
-import { config } from 'dotenv';
+const WebSocket = require('ws');
+const axios = require('axios');
+require('dotenv').config();
 
-config();
+const DERIV_APP_ID = process.env.DERIV_APP_ID;
+const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-const DERIV_APP_ID = process.env.DERIV_APP_ID!;
-const DERIV_API_TOKEN = process.env.DERIV_API_TOKEN!;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
-
-let ws: WebSocket | null = null;
+let ws = null;
 let isTrading = false;
 
-const sendTelegramMessage = async (message: string) => {
+const sendTelegramMessage = async (message) => {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   await axios.post(url, {
     chat_id: TELEGRAM_CHAT_ID,
@@ -29,7 +27,7 @@ const connectToDeriv = () => {
     authorize();
   });
 
-  ws.on('message', (data: any) => {
+  ws.on('message', (data) => {
     const res = JSON.parse(data.toString());
     handleResponse(res);
   });
@@ -39,16 +37,16 @@ const connectToDeriv = () => {
     setTimeout(connectToDeriv, 3000);
   });
 
-  ws.on('error', (err: any) => {
+  ws.on('error', (err) => {
     console.error('❌ WebSocket Error:', err.message);
   });
 };
 
 const authorize = () => {
-  ws?.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
+  ws.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
 };
 
-const handleResponse = (response: any) => {
+const handleResponse = (response) => {
   if (response.msg_type === 'authorize') {
     console.log('✅ Authorized on Deriv');
     sendTelegramMessage('✅ Authorized on Deriv');
