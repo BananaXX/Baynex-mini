@@ -12,6 +12,10 @@
     "ws": "^8.13.0"
   },
   "devDependencies": {
-    "typescript": "^5.2.2"
+    "typescript": "^5.2.2",
+    "@types/node": "^20.4.2",
+    "@types/ws": "^8.5.8",
+    "@types/dotenv": "^8.2.0",
+    "@types/axios": "^0.14.0"
   }
 }
