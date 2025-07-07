@@ -1,10 +1,10 @@
 {
   "name": "baynex-backend",
   "version": "1.0.0",
-  "main": "index.ts",
-  "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "ts-node src/backend/index.ts"
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
@@ -12,7 +12,6 @@
     "ws": "^8.13.0"
   },
   "devDependencies": {
-    "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
   }
 }
