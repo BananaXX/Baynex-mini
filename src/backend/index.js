@@ -1,10 +1,22 @@
 const WebSocket = require('ws');
 const axios = require('axios');
+const express = require('express');
+const app = express();
 
 const API_TOKEN = process.env.DERIV_API_TOKEN;
 const APP_ID = process.env.DERIV_APP_ID;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('✅ BAYNEX Backend Running');
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Server listening on port ${PORT}`);
+});
 
 const ws = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID}`);
 
