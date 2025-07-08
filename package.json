@@ -1,15 +1,15 @@
 {
   "name": "baynex-backend",
-  "version": "1.0.3",
-  "description": "BAYNEX.A.X Automated Trading Bot",
+  "version": "1.0.4",
+  "description": "BAYNEX.A.X Phase 3 - Full Backend",
   "main": "src/backend/index.js",
   "scripts": {
     "start": "node src/backend/index.js"
   },
   "dependencies": {
     "axios": "^1.6.7",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "ws": "^8.13.0",
-    "dotenv": "^16.3.1"
+    "ws": "^8.13.0"
   }
 }
