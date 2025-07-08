@@ -1,131 +1,56 @@
-const WebSocket = require('ws');
-const axios = require('axios');
-require('dotenv').config();
+// File: src/backend/index.js const express = require('express'); const WebSocket = require('ws'); const axios = require('axios'); require('dotenv').config();
 
-const API_TOKEN = process.env.DERIV_API_TOKEN;
-const APP_ID = process.env.DERIV_APP_ID;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const app = express(); const PORT = process.env.PORT || 10000;
 
-const ws = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID}`);
+const API_TOKEN = process.env.DERIV_API_TOKEN; const APP_ID = process.env.DERIV_APP_ID; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-let isAuthorized = false;
-let accountBalance = 0;
-let lastTelegramTime = 0;
-let dailyProfit = 0;
-let dailyLoss = 0;
-let openTrades = 0;
-let tradeCount = 0;
+let balance = 0; let profit = 0; let consecutiveLosses = 0; let lastTradeTime = 0;
 
-const MAX_TRADES_PER_SESSION = 50;
-const DAILY_PROFIT_TARGET = 10;
-const DAILY_LOSS_LIMIT = 10;
-const TRADE_COOLDOWN_MS = 30000;
+const DAILY_PROFIT_TARGET = 5; // $5 target const DAILY_LOSS_LIMIT = -10;  // $10 max loss const COOLDOWN_MS = 60000; // 1 minute cooldown
 
-let lastTradeTime = 0;
+const ws = new WebSocket(wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID});
 
-const sendTelegram = async (message) => {
-  const now = Date.now();
-  if (now - lastTelegramTime < 2500) return;  // Limit to 1 message every 2.5 sec
-  lastTelegramTime = now;
+const sendTelegram = async (msg) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; try { await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: msg, }); } catch (err) { console.error('Telegram Error:', err.response ? err.response.status : err.message); } };
 
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-  try {
-    await axios.post(url, {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message
-    });
-  } catch (error) {
-    console.error('Telegram Error:', error.response ? error.response.status : error.message);
-  }
-};
+ws.onopen = () => { sendTelegram('✅ BAYNEX Online & Connected'); ws.send(JSON.stringify({ authorize: API_TOKEN })); };
 
-ws.onopen = () => {
-  sendTelegram('✅ BAYNEX.A.X System Online');
-  ws.send(JSON.stringify({ authorize: API_TOKEN }));
-};
+ws.onmessage = (msg) => { const data = JSON.parse(msg.data);
 
-ws.onmessage = async (event) => {
-  const data = JSON.parse(event.data);
+if (data.msg_type === 'authorize') { ws.send(JSON.stringify({ balance: 1, subscribe: 1 })); sendTelegram('✅ Authorized. Monitoring Balance.'); }
 
-  if (data.msg_type === 'authorize') {
-    isAuthorized = true;
-    sendTelegram('✅ Authorized on Deriv');
-    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
-  }
+if (data.msg_type === 'balance') { balance = parseFloat(data.balance.balance / 10000).toFixed(2); sendTelegram(💰 Balance: $${balance});
 
-  if (data.msg_type === 'balance') {
-    const newBalance = data.balance.balance / 10000;
-    if (newBalance !== accountBalance) {
-      accountBalance = newBalance;
-      sendTelegram(`💰 Balance: $${accountBalance.toFixed(2)}`);
-    }
-  }
+const now = Date.now();
+if (now - lastTradeTime > COOLDOWN_MS && profit < DAILY_PROFIT_TARGET && profit > DAILY_LOSS_LIMIT && consecutiveLosses < 3) {
+  placeTrade();
+}
 
-  if (data.msg_type === 'buy') {
-    if (data.buy && data.buy.contract_id) {
-      sendTelegram(`✅ Trade Confirmed: ${data.buy.contract_id}`);
-      openTrades += 1;
-      tradeCount += 1;
-    }
-  }
+}
 
-  if (data.msg_type === 'profit_table') {
-    const profit = data.profit_table.profit / 10000;
-    if (profit > 0) {
-      dailyProfit += profit;
-      sendTelegram(`✅ Trade Won: +$${profit.toFixed(2)} | Daily Profit: $${dailyProfit.toFixed(2)}`);
-    } else {
-      dailyLoss += Math.abs(profit);
-      sendTelegram(`❌ Trade Lost: -$${Math.abs(profit).toFixed(2)} | Daily Loss: $${dailyLoss.toFixed(2)}`);
-    }
-    openTrades = Math.max(0, openTrades - 1);
-  }
+if (data.msg_type === 'buy') { const contractId = data.buy?.contract_id || 'unknown'; sendTelegram(✅ Trade Placed: Contract ID ${contractId}); }
 
-  if (data.error) {
-    sendTelegram(`❌ Error: ${data.error.message}`);
-  }
+if (data.msg_type === 'proposal_open_contract') { const payout = parseFloat(data.proposal_open_contract.profit);
 
-  // Auto-trade logic
-  if (isAuthorized && openTrades === 0 && Date.now() - lastTradeTime > TRADE_COOLDOWN_MS) {
-    if (tradeCount >= MAX_TRADES_PER_SESSION) {
-      sendTelegram('⛔ Max trades reached. Stopping.');
-      return;
-    }
-    if (dailyProfit >= DAILY_PROFIT_TARGET) {
-      sendTelegram(`🎯 Daily Target Hit: $${dailyProfit.toFixed(2)}. Stopping.`);
-      return;
-    }
-    if (dailyLoss >= DAILY_LOSS_LIMIT) {
-      sendTelegram(`⚠️ Loss Limit Hit: $${dailyLoss.toFixed(2)}. Stopping.`);
-      return;
-    }
+profit += payout;
+lastTradeTime = Date.now();
 
-    const proposal = {
-      buy: 1,
-      price: 0.35,
-      parameters: {
-        amount: 0.35,
-        basis: 'stake',
-        contract_type: 'CALL',
-        currency: 'USD',
-        duration: 1,
-        duration_unit: 'm',
-        symbol: 'R_100'
-      }
-    };
-    ws.send(JSON.stringify(proposal));
-    lastTradeTime = Date.now();
-  }
-};
+if (payout > 0) {
+  consecutiveLosses = 0;
+  sendTelegram(`✅ Trade Won: +$${payout.toFixed(2)} | Total: $${profit.toFixed(2)}`);
+} else {
+  consecutiveLosses++;
+  sendTelegram(`❌ Trade Lost: $${payout.toFixed(2)} | Total: $${profit.toFixed(2)} | Losses: ${consecutiveLosses}`);
+}
 
-ws.onerror = (err) => {
-  console.error('WebSocket Error:', err.message);
-  sendTelegram('❌ Disconnected from Deriv');
-};
+if (profit >= DAILY_PROFIT_TARGET) {
+  sendTelegram('🎯 Daily Profit Target Achieved. Stopping trades.');
+} else if (profit <= DAILY_LOSS_LIMIT || consecutiveLosses >= 3) {
+  sendTelegram('🛑 Trading Stopped: Loss Limit or Consecutive Losses hit.');
+}
 
-ws.onclose = () => {
-  sendTelegram('❌ Disconnected from Deriv');
-};
+} };
 
-console.log('✅ BAYNEX Backend Running');
+ws.onerror = (err) => { console.error('WebSocket error:', err.message); sendTelegram('❌ WebSocket Error. Check connection.'); };
+
+app.listen(PORT, () => { console.log(✅ BAYNEX Backend Running on port ${PORT}); });
+
