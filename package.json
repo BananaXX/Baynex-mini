@@ -1,15 +1,22 @@
 {
   "name": "baynex-backend",
   "version": "1.0.4",
-  "description": "BAYNEX Phase 3 Trading System",
+  "description": "BAYNEX.A.X Automated Trading Bot Backend",
   "main": "src/backend/index.js",
   "scripts": {
     "start": "node src/backend/index.js"
   },
+  "keywords": [
+    "deriv",
+    "telegram",
+    "trading-bot",
+    "baynex"
+  ],
+  "author": "Benedict & ChatGPT",
+  "license": "ISC",
   "dependencies": {
-    "axios": "^1.6.8",
+    "axios": "^1.6.7",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "ws": "^8.13.0"
+    "ws": "^8.16.0"
   }
 }
