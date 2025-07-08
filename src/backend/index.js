@@ -16,16 +16,17 @@ let dailyProfit = 0;
 let dailyLoss = 0;
 let openTrades = 0;
 let tradeCount = 0;
+
 const MAX_TRADES_PER_SESSION = 50;
-const DAILY_PROFIT_TARGET = 10;      // Target in USD
-const DAILY_LOSS_LIMIT = 10;         // Max allowed loss in USD
-const TRADE_COOLDOWN_MS = 30000;     // 30 seconds cooldown between trades
+const DAILY_PROFIT_TARGET = 10;
+const DAILY_LOSS_LIMIT = 10;
+const TRADE_COOLDOWN_MS = 30000;
 
 let lastTradeTime = 0;
 
 const sendTelegram = async (message) => {
   const now = Date.now();
-  if (now - lastTelegramTime < 1500) return;  // Telegram flood control: 1.5s delay
+  if (now - lastTelegramTime < 2500) return;  // Limit to 1 message every 2.5 sec
   lastTelegramTime = now;
 
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -40,7 +41,7 @@ const sendTelegram = async (message) => {
 };
 
 ws.onopen = () => {
-  sendTelegram('✅ BAYNEX System Online');
+  sendTelegram('✅ BAYNEX.A.X System Online');
   ws.send(JSON.stringify({ authorize: API_TOKEN }));
 };
 
@@ -85,18 +86,18 @@ ws.onmessage = async (event) => {
     sendTelegram(`❌ Error: ${data.error.message}`);
   }
 
-  // Auto-trading logic
+  // Auto-trade logic
   if (isAuthorized && openTrades === 0 && Date.now() - lastTradeTime > TRADE_COOLDOWN_MS) {
     if (tradeCount >= MAX_TRADES_PER_SESSION) {
       sendTelegram('⛔ Max trades reached. Stopping.');
       return;
     }
     if (dailyProfit >= DAILY_PROFIT_TARGET) {
-      sendTelegram(`🎯 Daily Profit Target Reached: $${dailyProfit.toFixed(2)}. Stopping.`);
+      sendTelegram(`🎯 Daily Target Hit: $${dailyProfit.toFixed(2)}. Stopping.`);
       return;
     }
     if (dailyLoss >= DAILY_LOSS_LIMIT) {
-      sendTelegram(`⚠️ Daily Loss Limit Hit: $${dailyLoss.toFixed(2)}. Stopping.`);
+      sendTelegram(`⚠️ Loss Limit Hit: $${dailyLoss.toFixed(2)}. Stopping.`);
       return;
     }
 
@@ -119,10 +120,12 @@ ws.onmessage = async (event) => {
 };
 
 ws.onerror = (err) => {
-  console.error('WebSocket error:', err.message);
+  console.error('WebSocket Error:', err.message);
   sendTelegram('❌ Disconnected from Deriv');
 };
 
 ws.onclose = () => {
   sendTelegram('❌ Disconnected from Deriv');
 };
+
+console.log('✅ BAYNEX Backend Running');
