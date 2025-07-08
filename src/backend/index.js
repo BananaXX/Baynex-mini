@@ -1,40 +1,131 @@
-// File: src/backend/index.js
+const WebSocket = require('ws');
+const axios = require('axios');
+require('dotenv').config();
 
-const WebSocket = require('ws'); const axios = require('axios'); require('dotenv').config();
+const API_TOKEN = process.env.DERIV_API_TOKEN;
+const APP_ID = process.env.DERIV_APP_ID;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-const API_TOKEN = process.env.DERIV_API_TOKEN; const APP_ID = process.env.DERIV_APP_ID; const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN; const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const ws = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID}`);
 
-const ws = new WebSocket(wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID});
+let isAuthorized = false;
+let accountBalance = 0;
+let openContracts = 0;
+let dailyPnL = 0;
+let lastTradeTime = 0;
+const cooldownTime = 5000; // 5 seconds cooldown
 
-const sendTelegram = async (message) => { const url = https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage; try { await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message }); } catch (error) { console.error('Telegram Error:', error.message); } };
+const profitTarget = 10; // Daily target in USD
+const stopLossLimit = -5; // Daily stop loss in USD
 
-let balance = 0; let openTrades = 0; const profitTarget = 10;  // $10 daily goal const lossLimit = -5;     // -$5 daily stop let dailyPnL = 0;
+const telegramQueue = [];
+let telegramBusy = false;
 
-const authorize = () => { ws.send(JSON.stringify({ authorize: API_TOKEN })); };
+function sendTelegram(message) {
+  telegramQueue.push(message);
+  processTelegramQueue();
+}
 
-const subscribeBalance = () => { ws.send(JSON.stringify({ balance: 1, subscribe: 1 })); };
+async function processTelegramQueue() {
+  if (telegramBusy || telegramQueue.length === 0) return;
+  telegramBusy = true;
+  const message = telegramQueue.shift();
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  try {
+    await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message });
+  } catch (error) {
+    console.error('Telegram Error:', error.message);
+  } finally {
+    telegramBusy = false;
+    setTimeout(processTelegramQueue, 1100); // Flood control delay
+  }
+}
 
-const placeTrade = () => { if (dailyPnL >= profitTarget) { sendTelegram(🎯 Profit target reached: $${dailyPnL.toFixed(2)}. Trading paused.); return; } if (dailyPnL <= lossLimit) { sendTelegram(⚠️ Loss limit reached: $${dailyPnL.toFixed(2)}. Trading stopped.); return; }
+function placeTrade() {
+  if (openContracts >= 100) {
+    sendTelegram('❌ Max contracts open. Waiting...');
+    return;
+  }
+  if (Date.now() - lastTradeTime < cooldownTime) return;
+  if (dailyPnL >= profitTarget) {
+    sendTelegram('✅ Daily profit target reached. Stopping.');
+    return;
+  }
+  if (dailyPnL <= stopLossLimit) {
+    sendTelegram('❌ Daily stop loss hit. Stopping.');
+    return;
+  }
 
-const proposal = { buy: 1, price: 0.35, parameters: { amount: 0.35, basis: 'stake', contract_type: 'CALL', currency: 'USD', duration: 1, duration_unit: 'm', symbol: 'R_100' } };
+  const proposal = {
+    buy: 1,
+    price: 0.35,
+    parameters: {
+      amount: 0.35,
+      basis: 'stake',
+      contract_type: 'CALL',
+      currency: 'USD',
+      duration: 1,
+      duration_unit: 'm',
+      symbol: 'R_100',
+    }
+  };
 
-if (openTrades < 100) { ws.send(JSON.stringify(proposal)); sendTelegram('🚀 Trade Sent: Momentum - $0.35'); openTrades++; } else { sendTelegram('❌ Max contracts open. Waiting to clear.'); } };
+  ws.send(JSON.stringify(proposal));
+  sendTelegram('🚀 Trade Sent: Momentum - $0.35');
+  lastTradeTime = Date.now();
+}
 
-ws.onopen = () => { sendTelegram('🟢 BAYNEX Phase 3 Online'); authorize(); };
+ws.onopen = () => {
+  sendTelegram('🟢 BAYNEX Phase 3.5 Online');
+  ws.send(JSON.stringify({ authorize: API_TOKEN }));
+};
 
-ws.onmessage = (msg) => { const data = JSON.parse(msg.data);
+ws.onmessage = (msg) => {
+  const data = JSON.parse(msg.data);
 
-if (data.msg_type === 'authorize') { sendTelegram('✅ Authorized on Deriv'); subscribeBalance(); }
+  if (data.error) {
+    sendTelegram(`❌ Error: ${data.error.message}`);
+    return;
+  }
 
-if (data.msg_type === 'balance') { balance = data.balance.balance / 10000; sendTelegram(💰 Balance: $${balance.toFixed(2)}); }
+  if (data.msg_type === 'authorize') {
+    isAuthorized = true;
+    sendTelegram('✅ Authorized on Deriv');
+    ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+  }
 
-if (data.msg_type === 'buy') { if (data.buy && data.buy.contract_id) { sendTelegram(✅ Trade Confirmed: ${data.buy.contract_id}); } }
+  if (data.msg_type === 'balance') {
+    const newBalance = parseFloat(data.balance.balance);
+    const profitLoss = newBalance - accountBalance;
+    if (accountBalance > 0 && profitLoss !== 0) dailyPnL += profitLoss;
+    accountBalance = newBalance;
+    sendTelegram(`💰 Balance: $${accountBalance.toFixed(2)}`);
+    placeTrade();
+  }
 
-if (data.msg_type === 'profit_table') { const lastProfit = data.profit_table.profit; dailyPnL += lastProfit; }
+  if (data.msg_type === 'buy') {
+    if (data.buy && data.buy.contract_id) {
+      openContracts++;
+      sendTelegram(`✅ Trade Confirmed: ${data.buy.contract_id}`);
+    }
+  }
 
-if (data.error) { sendTelegram(❌ Error: ${data.error.message}); } };
+  if (data.msg_type === 'proposal_open_contract') {
+    if (data.proposal_open_contract.is_sold) {
+      openContracts = Math.max(0, openContracts - 1);
+      const sellProfit = parseFloat(data.proposal_open_contract.profit);
+      dailyPnL += sellProfit;
+      sendTelegram(`✅ Contract Sold. PnL: $${sellProfit.toFixed(2)} | Daily: $${dailyPnL.toFixed(2)}`);
+    }
+  }
+};
 
-ws.onclose = () => { sendTelegram('❌ Connection closed.'); };
+ws.onerror = (err) => {
+  console.error('WebSocket error:', err.message);
+  sendTelegram('❌ Connection error');
+};
 
-setInterval(placeTrade, 60000);
-
+ws.onclose = () => {
+  sendTelegram('❌ Connection closed.');
+};
